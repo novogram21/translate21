@@ -3806,6 +3806,7 @@
         function loadMessages() {
             const list = document.getElementById('msgList');
 
+            // Очищаем старую подписку, если она была
             if (msgUnsub) msgUnsub();
             list.innerHTML = '';
 
@@ -3816,6 +3817,7 @@
                 .limitToLast(50)
                 .onSnapshot({ includeMetadataChanges: true }, snap => {
 
+                    // Игнорируем локальные изменения кэша, если данных мало (защита от дублей)
                     if (snap.metadata.fromCache && snap.docs.length < 2 && snap.docs.length > 0) return;
 
                     const batch = db.batch();
@@ -3828,7 +3830,7 @@
                         const rawData = doc.data();
                         const msgId = doc.id;
 
-                        // Клонируем и расшифровываем
+                        // Клонируем и расшифровываем текст
                         const m = { ...rawData };
                         m.txt = decryptText(rawData.txt, currentChatId);
 
@@ -3837,16 +3839,11 @@
                         const div = document.createElement('div');
                         div.id = 'msg-' + msgId;
 
-                        // === ЛОГИКА ОТКРЫТИЯ МЕНЮ ===
-
-                        // 1. Для ПК: Правая кнопка мыши
+                        // === ЛОГИКА ОТКРЫТИЯ МЕНЮ (ПК и Мобайл) ===
                         div.oncontextmenu = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
+                            e.preventDefault(); e.stopPropagation();
                             openContextMenu(e, msgId, m.from === currentUser.uid);
                         };
-
-                        // 2. Для Телефонов: Обычный клик
                         div.onclick = (e) => {
                             if (window.innerWidth <= 768) {
                                 if (e.target.tagName !== 'A' && e.target.tagName !== 'IMG') {
@@ -3855,13 +3852,14 @@
                                 }
                             }
                         };
-                        // ============================
 
+                        // Помечаем сообщение прочитанным
                         if (m.to === currentUser.uid && !m.read && isWindowActive) {
                             batch.update(doc.ref, { read: true });
                             needCommit = true;
                         }
 
+                        // Форматирование времени
                         let timeStr = '';
                         if (m.ts) {
                             const date = m.ts.toDate();
@@ -3873,13 +3871,10 @@
 
                         let ticksHtml = m.read ? '<span style="margin-right: -4px;">✓</span>✓' : '✓';
 
-                        if (m.sys) {
-                            div.className = 'msg msg-sys';
-                        } else if (m.from === currentUser.uid) {
-                            div.className = 'msg msg-me';
-                        } else {
-                            div.className = 'msg msg-other';
-                        }
+                        // Классы стилей
+                        if (m.sys) div.className = 'msg msg-sys';
+                        else if (m.from === currentUser.uid) div.className = 'msg msg-me';
+                        else div.className = 'msg msg-other';
 
                         let contentHtml = '';
 
@@ -3894,39 +3889,27 @@
 
                         const msgType = m.type || 'text';
 
+                        // --- ГЕНЕРАЦИЯ КОНТЕНТА ---
                         if (m.sys) {
                             contentHtml += m.txt;
                         }
                         else if (msgType === 'image') {
                             let imgSrc = m.txt;
-                            if (m.txt.includes('id=')) {
-                                try { const fileId = m.txt.split('id=')[1]; imgSrc = `https://lh3.googleusercontent.com/d/${fileId}=w600`; } catch (e) { }
-                            }
-                            contentHtml += `
-                        <div class="media-container">
-                            <img src="${imgSrc}" class="chat-media-img" onclick="openImageViewer('${imgSrc}')" referrerpolicy="no-referrer" onload="document.getElementById('msgList').scrollTop = document.getElementById('msgList').scrollHeight" onerror="this.src='https://placehold.co/200x200?text=Ошибка';">
-                        </div>`;
+                            if (m.txt.includes('id=')) { try { const fileId = m.txt.split('id=')[1]; imgSrc = `https://lh3.googleusercontent.com/d/${fileId}=w600`; } catch (e) { } }
+                            contentHtml += `<div class="media-container"><img src="${imgSrc}" class="chat-media-img" onclick="openImageViewer('${imgSrc}')" onload="document.getElementById('msgList').scrollTop = document.getElementById('msgList').scrollHeight" onerror="this.src='https://placehold.co/200x200?text=Ошибка';"></div>`;
                         }
                         else if (msgType === 'file') {
-                            contentHtml += `
-                        <a href="${m.txt}" target="_blank" class="chat-file-card">
-                            <div class="file-icon">📄</div>
-                            <div class="file-info"><div class="file-name">Скачать файл</div><div class="file-action">Нажмите для загрузки</div></div>
-                        </a>`;
+                            contentHtml += `<a href="${m.txt}" target="_blank" class="chat-file-card"><div class="file-icon">📄</div><div class="file-info"><div class="file-name">Скачать файл</div><div class="file-action">Нажмите для загрузки</div></div></a>`;
                         }
                         else {
                             // ТЕКСТОВОЕ СООБЩЕНИЕ
-                            let formattedText = m.txt.replace(
-                                /(https?:\/\/[^\s]+)/g,
-                                '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#4a9eff;text-decoration:underline;">$1</a>'
-                            );
-                            const safeHtml = DOMPurify.sanitize(formattedText, {
-                                ALLOWED_TAGS: ['a'],
-                                ALLOWED_ATTR: ['href', 'target', 'rel', 'style']
-                            });
+                            let formattedText = m.txt.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color:#4a9eff;text-decoration:underline;">$1</a>');
+                            const safeHtml = DOMPurify.sanitize(formattedText, { ALLOWED_TAGS: ['a'], ALLOWED_ATTR: ['href', 'target', 'style'] });
+                            // Важно: добавляем класс msg-text, чтобы переводчик знал, куда вставлять текст
                             contentHtml += `<span class="msg-text">${safeHtml}</span>`;
                         }
 
+                        // Добавляем время и галочки
                         if (!m.sys) {
                             let metaStyle = "";
                             if (msgType === 'image') {
@@ -3941,28 +3924,25 @@
                             ${m.from === currentUser.uid ? `<span class="msg-ticks" style="color: white; font-size: 12px; margin-left: 3px;">${ticksHtml}</span>` : ''}
                         </span>`;
 
-                            if (msgType === 'image') {
-                                contentHtml += metaHtml + `</div>`;
-                            } else {
-                                div.innerHTML = contentHtml + metaHtml;
-                            }
+                            if (msgType === 'image') contentHtml += metaHtml + `</div>`;
+                            else div.innerHTML = contentHtml + metaHtml;
 
-                            if (msgType === 'image') {
-                                div.innerHTML = contentHtml;
-                            }
+                            if (msgType === 'image') div.innerHTML = contentHtml;
                         } else {
                             div.innerHTML = contentHtml;
                         }
 
+                        // Добавляем сообщение в список
                         list.appendChild(div);
 
-                        // --- 🔥 НОВОЕ: ИНТЕГРАЦИЯ АВТОПЕРЕВОДА ---
-                        // Проверяем: включен ли перевод? сообщение от чужого? это текст? это не системное?
-                        if (typeof isAutoTranslate !== 'undefined' && isAutoTranslate && m.from !== currentUser.uid && msgType === 'text' && !m.sys) {
-                            // Вызываем функцию вставки перевода (она определена в коде выше)
-                            appendTranslation(div, m.txt);
+                        // 🔥🔥🔥 ВОТ ЭТОГО НЕ ХВАТАЛО: ЗАПУСК ПЕРЕВОДА 🔥🔥🔥
+                        if (typeof isAutoTranslate !== 'undefined' && isAutoTranslate) {
+                            // Переводим только ТЕКСТОВЫЕ сообщения от ДРУГИХ пользователей (не системные)
+                            if (m.from !== currentUser.uid && msgType === 'text' && !m.sys) {
+                                appendTranslation(div, m.txt);
+                            }
                         }
-                        // -------------------------------------------
+                        // -----------------------------------------------------
 
                     });
 
