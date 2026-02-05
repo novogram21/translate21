@@ -6166,18 +6166,42 @@
 
         // Смена языка (простой prompt)
         function changeTranslateLang() {
-            const newLang = prompt("Введите код языка (ru, en, ar, es, de):", targetLang);
-            if (newLang && newLang.length === 2) {
-                targetLang = newLang.toLowerCase();
-                localStorage.setItem('targetLang', targetLang);
-                updateLangLabel();
+            const langs = {
+                'ru': 'Русский',
+                'en': 'English',
+                'de': 'Deutsch',
+                'fr': 'Français',
+                'es': 'Español',
+                'it': 'Italiano',
+                'tr': 'Türkçe'
+            };
+
+            const code = prompt("Введите код языка (например: en, ru, de, fr):", targetLang);
+
+            if (code) {
+                const cleanCode = code.toLowerCase().trim();
+                // Проверка на валидность кода (2 символа)
+                if (cleanCode.length === 2) {
+                    targetLang = cleanCode;
+                    localStorage.setItem('targetLang', targetLang);
+                    updateLangLabel();
+                    showToast(`Язык перевода: ${langs[cleanCode] || cleanCode}`);
+                } else {
+                    alert("Ошибка: введите двухбуквенный код языка (например, 'en')");
+                }
             }
         }
 
         function updateLangLabel() {
             const el = document.getElementById('currentLangLabel');
-            if (el) el.innerText = `Код языка: ${targetLang}`;
+            if (el) {
+                const langNames = { 'ru': 'Русский', 'en': 'English', 'de': 'Deutsch', 'es': 'Español' };
+                const name = langNames[targetLang] || targetLang.toUpperCase();
+                el.innerText = `${name} (${targetLang})`;
+            }
         }
+
+       
 
         // Вызов инициализации (добавить этот вызов в openGeneralSettings)
         const originalOpenSettings = openGeneralSettings;
@@ -6189,17 +6213,19 @@
         // --- API ПЕРЕВОДА ---
         async function fetchTranslation(text, toLang) {
             try {
-                // Используем MyMemory API (Autodetect -> toLang)
+                // Добавляем проверку: если текст уже на целевом языке, не переводить
+                // langpair=Autodetect|ru
                 const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=Autodetect|${toLang}`;
                 const res = await fetch(url);
                 const data = await res.json();
 
                 if (data && data.responseData && data.responseData.translatedText) {
+                    // MyMemory иногда возвращает текст без изменений или с ошибкой "MOUNT LIMIT REACHED"
                     return data.responseData.translatedText;
                 }
                 return null;
             } catch (e) {
-                console.error("Translation error:", e);
+                console.error("Ошибка API перевода:", e);
                 return null;
             }
         }
